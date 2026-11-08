@@ -107,10 +107,10 @@ public sealed class RecordingSession(IAudioCapture capture, ITranscriber transcr
             return;
         }
 
-        var segment = new TranscriptSegment(chunk.Start, chunk.Duration, text);
+        var segment = new TranscriptSegment(chunk.Start, chunk.Duration, text) { Source = chunk.Source };
 
         await File.AppendAllTextAsync(Path.Combine(directory, "transcript.txt"),
-            $"[{chunk.Start:hh\\:mm\\:ss}] {text}{Environment.NewLine}", abort.Token);
+            $"[{chunk.Start:hh\\:mm\\:ss}] [{chunk.Source}] {text}{Environment.NewLine}", abort.Token);
 
         SegmentReady?.Invoke(segment);
     }

@@ -7,6 +7,9 @@ namespace Audio2Mcp.Core;
 /// <param name="Peak">Maximum absolute normalized sample amplitude.</param>
 public sealed record AudioChunk(string Path, TimeSpan Start, TimeSpan Duration, double Peak)
 {
+    /// <summary>Origin of the audio; does not identify a person.</summary>
+    public AudioSource Source { get; init; } = AudioSource.SystemOutput;
+
     /// <summary>Whether the peak is below the near-silence threshold; this is not speech detection.</summary>
     public bool IsSilent => AudioSignal.IsSilent(Peak);
 }

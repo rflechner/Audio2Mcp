@@ -1,7 +1,9 @@
 <Solution>
   <Project Path="src/Audio2Mcp.Core/Audio2Mcp.Core.csproj" />
+  <Project Path="src/Audio2Mcp.Diarization/Audio2Mcp.Diarization.csproj" />
   <Folder Name="/docs/">
     <File Path="docs/architecture.md" />
+    <File Path="docs/diarization.md" />
     <File Path="docs/validation.md" />
     <File Path="docs/whisper.md" />
   </Folder>
@@ -10,5 +12,6 @@
   <Project Path="src/Audio2Mcp.Desktop/Audio2Mcp.Desktop.csproj" />
   <Project Path="src/Audio2Mcp.Cli/Audio2Mcp.Cli.csproj" />
   <Project Path="tests/Audio2Mcp.Tests/Audio2Mcp.Tests.csproj" />
+  <Project Path="tests/Audio2Mcp.DiarizationSmokeTest/Audio2Mcp.DiarizationSmokeTest.csproj" />
   <Project Path="tests/Audio2Mcp.WhisperSmokeTest/Audio2Mcp.WhisperSmokeTest.csproj" />
 </Solution>

@@ -4,6 +4,7 @@
     <PackageReference Include="Avalonia.Desktop" Version="12.1.4" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.4" />
     <ProjectReference Include="../Audio2Mcp.Capture.Windows/Audio2Mcp.Capture.Windows.csproj" />
+    <ProjectReference Include="../Audio2Mcp.Diarization/Audio2Mcp.Diarization.csproj" />
     <ProjectReference Include="../Audio2Mcp.Transcription.Whisper/Audio2Mcp.Transcription.Whisper.csproj" />
   </ItemGroup>
 </Project>

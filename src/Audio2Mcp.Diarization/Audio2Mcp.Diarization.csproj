@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Audio2Mcp.Core/Audio2Mcp.Core.csproj" />
+    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="2.0.1" />
+    <PackageReference Include="NAudio.Core" Version="3.0.0" />
+  </ItemGroup>
+</Project>

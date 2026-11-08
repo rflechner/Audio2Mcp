@@ -65,4 +65,6 @@ The worker processes chunks in order. Stop waits for the queue to drain; each in
 
 To support another OS, implement `IAudioCapture`: emit mono 16 kHz PCM16 WAV files, timestamps, and a peak measurement, then return a `CaptureResult`. No changes to the Whisper adapter or core are needed. To replace speech-to-text, implement `ITranscriber`.
 
-Stereo channels do not correspond to individual speakers. Diarization would require a separate processing step; capturing the local microphone would also require a dedicated adapter and synchronization.
+Stereo channels do not correspond to individual speakers. `WindowsAudioCapture` supports either the output or the default communications microphone. `DualSourceCapture` preserves separate files and tags chunks by source; its host-clock offsets are approximate and do not correct device drift. Both sources share the bounded transcription queue and the retained Whisper model.
+
+After Stop, the optional `ConversationAnalysis` runs Sherpa-ONNX diarization over each complete source independently, then retranscribes estimated turns with a caller-owned `ITranscriber`. The core holds only source and speaker-turn domain objects; NAudio and native Sherpa types stay in adapters. Analysis output has its own directory and does not overwrite the live transcript. See [diarization contracts](diarization.md).

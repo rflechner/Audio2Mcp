@@ -7,7 +7,8 @@ internal sealed record CaptureOptions(
     bool TestTone,
     string? WhisperExecutable,
     string? ModelPath,
-    string Language)
+    string Language,
+    bool CaptureMicrophone)
 {
     public static CaptureOptions Parse(string[] args)
     {
@@ -16,6 +17,7 @@ internal sealed record CaptureOptions(
         string? whisper = null, model = null;
         string language = "fr";
         bool tone = false;
+        bool microphone = false;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -33,6 +35,10 @@ internal sealed record CaptureOptions(
 
                 case "--test-tone":
                     tone = true;
+                    break;
+
+                case "--microphone":
+                    microphone = true;
                     break;
 
                 case "--whisper":
@@ -56,6 +62,6 @@ internal sealed record CaptureOptions(
             throw new ArgumentException("Durée attendue : 1 à 3600 secondes.");
         }
 
-        return new CaptureOptions(TimeSpan.FromSeconds(seconds), directory, tone, whisper, model, language);
+        return new CaptureOptions(TimeSpan.FromSeconds(seconds), directory, tone, whisper, model, language, microphone);
     }
 }

@@ -6,7 +6,7 @@ try
 {
     if (args.Contains("--help"))
     {
-        Console.WriteLine("--duration <1..3600> --output <dossier neuf> --test-tone\n--model <ggml.bin> --language <fr|en|auto>\nAvec --model : Whisper.net en mémoire. --whisper <exe> : moteur externe optionnel.\nSans modèle : capture seule. Ctrl+C : arrêt propre.");
+        Console.WriteLine("--duration <1..3600> --output <dossier neuf> --test-tone --microphone\n--model <ggml.bin> --language <fr|en|auto>\nAvec --model : Whisper.net en mémoire. --whisper <exe> : moteur externe optionnel.\n--microphone : enregistrer aussi le micro, séparément.\nSans modèle : capture seule. Ctrl+C : arrêt propre.");
         return 0;
     }
 
@@ -38,12 +38,16 @@ try
         transcriber = new NoTranscription();
     }
 
-    await using var session = new RecordingSession(
-        new WindowsLoopbackCapture(testTone: options.TestTone),
-        transcriber);
+    IAudioCapture capture = new WindowsAudioCapture(testTone: options.TestTone);
+    if (options.CaptureMicrophone)
+    {
+        capture = new DualSourceCapture(capture, new WindowsAudioCapture(AudioSource.Microphone));
+    }
+
+    await using var session = new RecordingSession(capture, transcriber);
 
     session.StatusChanged += Console.WriteLine;
-    session.SegmentReady += s => Console.WriteLine($"[{s.Start:mm\\:ss}] {s.Text}");
+    session.SegmentReady += s => Console.WriteLine($"[{s.Start:mm\\:ss}] [{s.Source}] {s.Text}");
 
     using var stop = new CancellationTokenSource();
     session.CaptureFailed += ex =>
@@ -74,6 +78,10 @@ try
         }
 
         var result = await session.StopAsync();
+        foreach (var recording in result.Recordings)
+        {
+            Console.WriteLine($"{recording.Source} : {recording.Path} ({recording.Duration.TotalSeconds:0.000} s)");
+        }
         Console.WriteLine($"WAV : {result.Path}\nAudio : {result.Bytes} octets, {result.Duration.TotalSeconds:0.000} s, crête {result.Peak:0.000000}");
         Console.WriteLine(result.IsSilent ? "Silence : audio utile NON validé." : "Signal non silencieux validé ; parole non garantie.");
 

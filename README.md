@@ -1,6 +1,6 @@
 # Audio2Mcp
 
-A .NET 10 / Avalonia proof of concept that captures **Windows system audio** through WASAPI loopback, saves a full WAV recording, and transcribes it progressively with local whisper.cpp inference. No LLM, MCP integration, or speaker diarization is implemented yet.
+A .NET 10 / Avalonia proof of concept that captures **Windows system audio** through WASAPI loopback, optionally records the microphone separately, and transcribes progressively with local whisper.cpp inference. Experimental offline speaker diarization labels anonymous voices after recording. No LLM or MCP integration is implemented yet.
 
 ## Getting started on Windows
 
@@ -30,6 +30,20 @@ Each session writes to `captures/<timestamp>/`:
 - `segment-00000.wav`, etc.: 16-bit PCM, mono, 16 kHz chunks for whisper.cpp.
 - `transcript.txt`: recognized text with each chunk's start time; absent if no text is recognized.
 
+## Microphone and speaker labels
+
+For calls, enable **Include microphone (separate source)** before Start. The microphone and system output are recorded separately and live text is labeled `Micro` or `PC`. A source is not necessarily a single person. Use headphones to reduce playback leaking into the microphone; this prototype does not cancel acoustic echo.
+
+To distinguish voices already mixed in the system audio, install the local analysis models once:
+
+```powershell
+./scripts/setup-diarization.ps1
+```
+
+After **Stop**, click **Identify speakers**. The application analyzes each full source recording, then retranscribes its speaker turns. Labels are scoped to each source, such as `PC · Speaker 1` and `Microphone · Speaker 1`; they do not identify people by name or match voices across sources. The original live transcript is preserved. Results are saved in a new `diarization-<id>/` directory with text, JSON, and turn WAV files.
+
+The main panel shows the PC speaker count: leave it at `0` for an automatic estimate, or set `2` when you know there are two speakers in that source. Automatic estimates can split one voice into several groups. Advanced **Speaker settings** expose a clustering threshold: increasing it produces fewer groups but can merge different voices. Microphone voices are counted automatically. Speaker labels are assigned after recording, not live. See [diarization details and limitations](docs/diarization.md).
+
 ## Time-limited test without a model
 
 ```powershell
@@ -43,13 +57,13 @@ dotnet run --project src/Audio2Mcp.Cli -c Release -- --duration 15 --model model
 dotnet test tests/Audio2Mcp.Tests -c Release
 ```
 
-The example uses Whisper.net and `fr` for French audio; use `en` for English or `auto` for automatic language detection. Add `--whisper tools/whisper/whisper-cli.exe` to compare with the external engine. Without `--model` or `--whisper`, the console only captures audio. `--output` specifies a **new session directory**. Ctrl+C finalizes the WAV. Captures remain local and are ignored by Git.
+The example uses Whisper.net and `fr` for French audio; use `en` for English or `auto` for automatic language detection. Add `--microphone` to capture a separate microphone track, or `--whisper tools/whisper/whisper-cli.exe` to compare with the external engine. Without `--model` or `--whisper`, the console only captures audio. `--output` specifies a **new session directory**. Ctrl+C finalizes the WAV. Captures remain local and are ignored by Git.
 
 ## Scope and limitations
 
-Loopback captures the application mix sent to the default multimedia output selected at startup. It does not automatically capture the microphone: during a call, the remote voice will be included, but the local voice usually will not. The selected output stays fixed throughout a session; switching headsets requires restarting capture. Protected content and some exclusive audio paths may not be capturable.
+Loopback captures the application mix sent to the default multimedia output selected at startup. The optional microphone track uses the default communications input and stays separate from the output mix. Selected devices stay fixed throughout a session; switching headsets requires restarting capture. Protected content and some exclusive audio paths may not be capturable. The two device timelines use approximate host startup offsets and have no hardware clock synchronization or drift correction.
 
-Chunking detects pauses using the RMS level over 20 ms windows (threshold 0.003, approximately -50 dBFS). It preserves the audio before speech and the entire trailing pause; periods without an active signal are saved in 5-second chunks. This heuristic does not distinguish speech from music or noise: continuous background audio can delay transcription until the 20-second limit, and very quiet speech may be split incorrectly. A forced boundary can still split a word; there is no overlap, dedicated voice activity detection (VAD), or speaker identification. Whisper can hallucinate on music or noise. The near-silence filter used before transcription is separate from the chunking threshold. The queue is bounded to 8 chunks: if the CPU cannot keep up, new chunks remain on disk but are reported as not transcribed.
+Live chunking detects pauses using the RMS level over 20 ms windows (threshold 0.003, approximately -50 dBFS). It preserves the audio before speech and the entire trailing pause; periods without an active signal are saved in 5-second chunks. This heuristic does not distinguish speech from music or noise: continuous background audio can delay transcription until the 20-second limit, and very quiet speech may be split incorrectly. A forced boundary can still split a word; live capture has no overlap or dedicated VAD. Whisper can hallucinate on music or noise. The near-silence filter used before transcription is separate from the chunking threshold. Both sources share a queue bounded to 8 chunks: if the CPU cannot keep up, new chunks remain on disk but are reported as not transcribed. Offline diarization is a separate, experimental pass and does not separate overlapping voices into clean audio.
 
 The core and UI target `net10.0`, with no NAudio types in the core. Only the Windows capture adapter is implemented; Start is disabled on Linux and macOS. Portable capture remains future work.
 

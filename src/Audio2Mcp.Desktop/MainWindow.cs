@@ -56,12 +56,14 @@ public sealed class MainWindow : Window
     };
 
     private RecordingSession? session;
+    private readonly SpeakerAnalysisPanel speakerAnalysis;
     private bool busy;
     private bool closing;
 
     /// <summary>Creates the recording controls and connects the session lifecycle actions.</summary>
     public MainWindow()
     {
+        speakerAnalysis = new SpeakerAnalysisPanel(CreateTranscriber);
         BuildLayout();
         BindActions();
 
@@ -76,7 +78,7 @@ public sealed class MainWindow : Window
     {
         Title = "Audio2Mcp — transcription locale";
         Width = 780;
-        Height = 670;
+        Height = 850;
         MinWidth = 600;
         MinHeight = 550;
 
@@ -104,6 +106,7 @@ public sealed class MainWindow : Window
 
         settings.Children.Add(new TextBlock { Text = "Langue (fr, en, auto…)" });
         settings.Children.Add(language);
+        settings.Children.Add(speakerAnalysis);
 
         var buttons = new StackPanel
         {
@@ -128,13 +131,13 @@ public sealed class MainWindow : Window
 
         var footer = new TextBlock
         {
-            Text = "Sortie système uniquement • pas de microphone • WAV et texte dans captures/",
+            Text = "Son du PC et micro optionnel • traitement local • WAV et texte dans captures/",
             TextWrapping = TextWrapping.Wrap,
             FontSize = 12
         };
 
         Grid.SetRow(footer, 2);
-        layout.Children.Add(settings);
+        layout.Children.Add(new ScrollViewer { Content = settings, MaxHeight = 650 });
         layout.Children.Add(transcript);
         layout.Children.Add(footer);
 
@@ -143,6 +146,14 @@ public sealed class MainWindow : Window
 
     private void BindActions()
     {
+        speakerAnalysis.StatusChanged += message => status.Text = message;
+        speakerAnalysis.BusyChanged += active => start.IsEnabled = !active && OperatingSystem.IsWindows();
+        speakerAnalysis.Completed += result =>
+        {
+            transcript.Text = string.Join(Environment.NewLine, result.Segments.Select(segment =>
+                $"[{segment.Start:mm\\:ss}] [{SourceLabel(segment.Source)} · Interlocuteur {segment.Speaker}] " +
+                (segment.HasOverlap ? "[voix superposées] " : "") + segment.Text));
+        };
         engine.SelectionChanged += (_, _) => executableSettings.IsVisible = engine.SelectedIndex == 1;
         start.Click += async (_, _) => await StartAsync();
         stop.Click += async (_, _) => await StopAsync();
@@ -151,7 +162,7 @@ public sealed class MainWindow : Window
 
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
     {
-        if (closing || session is null)
+        if (closing || (session is null && !speakerAnalysis.IsAnalyzing))
         {
             return;
         }
@@ -168,7 +179,11 @@ public sealed class MainWindow : Window
 
         try
         {
-            await session.DisposeAsync();
+            await speakerAnalysis.CancelAndWaitAsync();
+            if (session is not null)
+            {
+                await session.DisposeAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -183,7 +198,7 @@ public sealed class MainWindow : Window
 
     private async Task StartAsync()
     {
-        if (busy || session is not null || !OperatingSystem.IsWindows())
+        if (busy || session is not null || speakerAnalysis.IsAnalyzing || !OperatingSystem.IsWindows())
         {
             return;
         }
@@ -193,10 +208,15 @@ public sealed class MainWindow : Window
 
         try
         {
-            ITranscriber transcriber = engine.SelectedIndex == 0
-                ? new WhisperNetTranscriber(model.Text ?? "", language.Text ?? "fr")
-                : new WhisperCliTranscriber(executable.Text ?? "", model.Text ?? "", language.Text ?? "fr");
-            session = new RecordingSession(new WindowsLoopbackCapture(), transcriber);
+            var transcriber = CreateTranscriber();
+            IAudioCapture capture = new WindowsAudioCapture();
+            if (speakerAnalysis.IncludeMicrophone)
+            {
+                capture = new DualSourceCapture(capture, new WindowsAudioCapture(AudioSource.Microphone));
+            }
+
+            session = new RecordingSession(capture, transcriber);
+            speakerAnalysis.SetCapturing(true);
             BindSessionEvents(session);
 
             transcript.Text = "";
@@ -211,6 +231,7 @@ public sealed class MainWindow : Window
         {
             status.Text = $"Démarrage impossible : {ex.Message}";
             await DisposeSessionAsync();
+            speakerAnalysis.SetCapturing(false);
 
             start.IsEnabled = true;
         }
@@ -224,7 +245,7 @@ public sealed class MainWindow : Window
     {
         recordingSession.SegmentReady += segment => Dispatcher.UIThread.Post(() =>
             {
-                transcript.Text += $"[{segment.Start:mm\\:ss}] {segment.Text}{Environment.NewLine}";
+                transcript.Text += $"[{segment.Start:mm\\:ss}] [{SourceLabel(segment.Source)}] {segment.Text}{Environment.NewLine}";
                 transcript.CaretIndex = transcript.Text.Length;
             });
 
@@ -273,9 +294,10 @@ public sealed class MainWindow : Window
         try
         {
             var result = await session.StopAsync();
+            speakerAnalysis.SetRecording(result);
 
             status.Text = $"Terminé • {result.Duration.TotalSeconds:0.0} s • " +
-                (result.IsSilent ? "silence détecté • " : "signal audio détecté • ") + result.Path;
+                "enregistrement sauvegardé • " + result.Path;
         }
         catch (Exception ex)
         {
@@ -285,9 +307,22 @@ public sealed class MainWindow : Window
         {
             await DisposeSessionAsync();
 
+            speakerAnalysis.SetCapturing(false);
             busy = false;
             start.IsEnabled = true;
             engine.IsEnabled = executable.IsEnabled = model.IsEnabled = language.IsEnabled = true;
         }
+    }
+
+    private ITranscriber CreateTranscriber()
+    {
+        return engine.SelectedIndex == 0
+            ? new WhisperNetTranscriber(model.Text ?? "", language.Text ?? "fr")
+            : new WhisperCliTranscriber(executable.Text ?? "", model.Text ?? "", language.Text ?? "fr");
+    }
+
+    private static string SourceLabel(AudioSource source)
+    {
+        return source == AudioSource.Microphone ? "Micro" : "PC";
     }
 }

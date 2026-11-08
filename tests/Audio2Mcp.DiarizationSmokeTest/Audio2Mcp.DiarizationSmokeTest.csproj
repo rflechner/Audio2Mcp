@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Audio2Mcp.Diarization/Audio2Mcp.Diarization.csproj" />
+    <ProjectReference Include="../../src/Audio2Mcp.Transcription.Whisper/Audio2Mcp.Transcription.Whisper.csproj" />
+  </ItemGroup>
+</Project>

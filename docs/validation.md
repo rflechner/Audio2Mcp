@@ -66,6 +66,16 @@ Local results are in `captures/validation-tone/`, `captures/validation-silence/`
 - This pass tested native inference from saved WAV files. Live loopback capture, the desktop UI, GPU runtimes, and published deployment on a clean machine were not retested. Capture and conversion code were unchanged.
 - Reproduce with the explicit [native smoke test](whisper.md#repeatable-native-smoke-test). No models or recordings are committed.
 
+### Separate microphone capture and offline diarization
+
+- Build: Release compilation passed without warnings. The deterministic suite includes 27 cases covering the existing session behavior, separate source tagging, parallel stop requests, rollback on microphone startup failure, disposal failures, overlapping turn semantics, and offline WAV conversion.
+- Native Sherpa-ONNX 2.0.1 test with the public `1-two-speakers-en.wav` fixture: automatic clustering found 2 speakers and 4 turns. The complete analysis retranscribed the turns with Whisper.net and saved source-scoped labels.
+- Native single-speaker French check: automatic clustering found 1 speaker, and the retirement-age sentence was recognized in full after adding up to 150 ms of context around non-overlapping turns. A separate silent WAV produced 0 speakers and 0 turns.
+- Hardware check with simultaneous PC output and microphone: 2.850 s of system output in native stereo 44.1 kHz / 32-bit extensible format, and 2.960 s from the microphone in native stereo 48 kHz / 32-bit extensible format. Separate transcription WAVs were PCM16 mono 16 kHz. RIFF sizes and formats were inspected independently. Startup offset metadata was recorded; this is not sample-accurate synchronization.
+- The desktop's microphone option, speaker settings, and disabled-before-Stop analysis controls were visually inspected with the computer-use skill. The directly launched executable needed an absolute model path because it was not started through the repository launch profile. A complete GUI recording-to-analysis interaction was not exercised.
+- The model setup script verified the downloaded archive, extracted segmentation model, and embedding model hashes. Local artifacts are under `models/diarization/`, `captures/diarization-fixtures/`, `captures/diarization-smoke-*/`, and `captures/dual-source-hardware-check/`; none are versioned.
+- Limitations: no two-person French live call, sustained dual-device recording, overlapping-speech accuracy evaluation, or clean-machine deployment test was performed. Native diarization cancellation waits for the current native call to finish. The labels are estimates, not personal identities.
+
 ### Launch commands
 
 ```powershell

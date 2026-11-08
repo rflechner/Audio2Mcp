@@ -6,13 +6,13 @@ using NAudio.Wave.SampleProviders;
 
 namespace Audio2Mcp.Capture.Windows;
 
-/// <summary>Saves the Windows output mix in its native format and emits transcription-ready chunks.</summary>
+/// <summary>Saves a Windows output or microphone source in its native format and emits transcription-ready chunks.</summary>
 /// <remarks>
 /// One instance per recording. Chunk callbacks run on the recorder thread, or on the stopping
 /// thread for the final chunk. Native audio is retained in full; quiet pauses delimit chunks.
 /// </remarks>
 [SupportedOSPlatform("windows")]
-public sealed class WindowsLoopbackCapture(string? deviceId = null, bool testTone = false) : IAudioCapture
+public sealed class WindowsAudioCapture(AudioSource source = AudioSource.SystemOutput, string? deviceId = null, bool testTone = false) : IAudioCapture
 {
     private MMDeviceEnumerator? enumerator;
     private MMDevice? device;
@@ -43,20 +43,28 @@ public sealed class WindowsLoopbackCapture(string? deviceId = null, bool testTon
         directory = outputDirectory;
         Directory.CreateDirectory(directory);
 
+        var dataFlow = source == AudioSource.SystemOutput ? DataFlow.Render : DataFlow.Capture;
+        var role = source == AudioSource.SystemOutput ? Role.Multimedia : Role.Communications;
         enumerator = new MMDeviceEnumerator();
         device = deviceId is null
-            ? enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia)
+            ? enumerator.GetDefaultAudioEndpoint(dataFlow, role)
             : enumerator.GetDevice(deviceId);
 
-        if (device.DataFlow != DataFlow.Render || device.State != DeviceState.Active)
+        if (device.DataFlow != dataFlow || device.State != DeviceState.Active)
         {
-            throw new InvalidOperationException("La sortie audio choisie n'est pas active.");
+            throw new InvalidOperationException("La source audio choisie n'est pas active.");
         }
 
-        recorder = new WasapiRecorderBuilder().WithDevice(device).WithLoopbackCapture().Build();
+        var builder = new WasapiRecorderBuilder().WithDevice(device);
+        if (source == AudioSource.SystemOutput)
+        {
+            builder = builder.WithLoopbackCapture();
+        }
+
+        recorder = builder.Build();
         stream = new FileStream(Path.Combine(directory, "capture.wav"), FileMode.CreateNew, FileAccess.Write, FileShare.Read);
         writer = new WaveFileWriter(stream, recorder.WaveFormat);
-        chunks = new PauseBasedChunkWriter(directory, recorder.WaveFormat, chunk => ChunkReady?.Invoke(chunk));
+        chunks = new PauseBasedChunkWriter(directory, recorder.WaveFormat, chunk => ChunkReady?.Invoke(chunk with { Source = source }));
 
         recorder.DataAvailable += (buffer, flags, position, timestamp) =>
         {
@@ -75,10 +83,13 @@ public sealed class WindowsLoopbackCapture(string? deviceId = null, bool testTon
 
         };
 
-        InitializePlayback();
+        if (source == AudioSource.SystemOutput)
+        {
+            InitializePlayback();
+        }
         recorder.StartRecording();
         running = true;
-        playback!.Play();
+        playback?.Play();
 
         return Task.CompletedTask;
     }
