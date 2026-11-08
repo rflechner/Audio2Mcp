@@ -1,6 +1,6 @@
 # Audio2Mcp
 
-A .NET 10 / Avalonia proof of concept that captures **Windows system audio** through WASAPI loopback, optionally records the microphone separately, and transcribes progressively with local whisper.cpp inference. Experimental offline speaker diarization labels anonymous voices after recording. No LLM or MCP integration is implemented yet.
+A .NET 10 / Avalonia proof of concept that captures **Windows system audio** through WASAPI loopback, optionally records the microphone separately, and transcribes progressively with local whisper.cpp inference. Experimental offline speaker diarization labels anonymous voices after recording. A separate chat tab supports streaming conversations and images with a local OpenAI-compatible LLM. MCP integration is not implemented yet.
 
 ## Getting started on Windows
 
@@ -29,6 +29,26 @@ Each session writes to `captures/<timestamp>/`:
 - `capture.wav`: the complete recording in the output device's native format (usually stereo float).
 - `segment-00000.wav`, etc.: 16-bit PCM, mono, 16 kHz chunks for whisper.cpp.
 - `transcript.txt`: recognized text with each chunk's start time; absent if no text is recognized.
+
+## Local LLM chat
+
+Open the **Chat** tab to send text and attach PNG, JPEG, or WebP files. Replies appear incrementally using the official `OpenAI` .NET client (Chat Completions streaming). **Interrompre** cancels generation; **Nouvelle discussion** clears the conversation and reloads configuration on the next send. Enter inserts a newline; use **Envoyer** to submit.
+
+Edit `src/Audio2Mcp.Desktop/appsettings.json` before building, or the copied `appsettings.json` beside the deployed executable:
+
+```json
+{
+  "Llm": {
+    "Endpoint": "http://127.0.0.1:8888/v1",
+    "Model": "Ministral-3-3B-Instruct-2512-GGUF:Q4_K_M",
+    "ApiKeyEnvironmentVariable": "LLM_API_KEY"
+  }
+}
+```
+
+The API key itself must be available in the application's process environment; never put it in JSON or source control. Restart the application and its launching IDE/terminal after changing environment variables. Use the exact model ID reported by your server. Image understanding requires a loaded vision-capable model and server support; the UI accepts up to four images per message, each at most 10 MiB.
+
+History and attachments remain in memory until a new discussion or application exit. Each request sends prior completed turns and their images to the configured endpoint. Interrupted or failed turns stay visible but are excluded from subsequent model context, and their draft is retained for retry. No audio or transcripts are automatically sent to the LLM. The default endpoint is loopback; changing it changes where chat text and images are sent. There is no automatic context trimming, persistent chat storage, or Markdown rendering.
 
 ## Microphone and speaker labels
 

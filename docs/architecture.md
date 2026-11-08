@@ -2,6 +2,8 @@
 
 The application core depends only on .NET. Dependencies point toward the `IAudioCapture` and `ITranscriber` ports defined in `Audio2Mcp.Core`. The desktop window and console application are the composition roots.
 
+The separate `Audio2Mcp.Chat` project uses the official OpenAI SDK for a configurable local Chat Completions endpoint. It has no dependency on audio capture or the audio core. `LlmSettings` loads connection metadata and resolves the named environment variable at connection time. `ChatImage` bounds image reads and identifies MIME types. `ChatConversation` owns completed turns, permits one active stream, and discards failed/cancelled turns from context. Its async iterator yields text deltas without buffering the full reply; cancellation reaches the SDK request. `ChatPanel` consumes these deltas on the Avalonia UI thread, owns request cancellation, and keeps retry drafts. Window closure cancels generation and waits for cleanup. Chat data is memory-only and images are inline request parts, with no separate upload service.
+
 Contracts and domain objects are documented in their respective files. `AudioChunk.IsSilent` and `CaptureResult.IsSilent` share the near-silence threshold without claiming to detect speech. The console groups its settings in `CaptureOptions`. The window separates control construction, event wiring, and the session lifecycle.
 
 ```mermaid

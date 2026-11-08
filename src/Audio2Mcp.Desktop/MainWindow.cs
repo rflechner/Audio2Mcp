@@ -57,6 +57,7 @@ public sealed class MainWindow : Window
 
     private RecordingSession? session;
     private readonly SpeakerAnalysisPanel speakerAnalysis;
+    private readonly ChatPanel chat = new();
     private bool busy;
     private bool closing;
 
@@ -76,7 +77,7 @@ public sealed class MainWindow : Window
 
     private void BuildLayout()
     {
-        Title = "Audio2Mcp — transcription locale";
+        Title = "Audio2Mcp — transcription et chat local";
         Width = 780;
         Height = 850;
         MinWidth = 600;
@@ -141,7 +142,14 @@ public sealed class MainWindow : Window
         layout.Children.Add(transcript);
         layout.Children.Add(footer);
 
-        Content = layout;
+        Content = new TabControl
+        {
+            ItemsSource = new[]
+            {
+                new TabItem { Header = "Transcription", Content = layout },
+                new TabItem { Header = "Chat", Content = chat }
+            }
+        };
     }
 
     private void BindActions()
@@ -158,11 +166,12 @@ public sealed class MainWindow : Window
         start.Click += async (_, _) => await StartAsync();
         stop.Click += async (_, _) => await StopAsync();
         Closing += OnClosing;
+        Closed += async (_, _) => await chat.CancelAndWaitAsync();
     }
 
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
     {
-        if (closing || (session is null && !speakerAnalysis.IsAnalyzing))
+        if (closing || (session is null && !speakerAnalysis.IsAnalyzing && !chat.IsSending))
         {
             return;
         }
@@ -179,6 +188,7 @@ public sealed class MainWindow : Window
 
         try
         {
+            await chat.CancelAndWaitAsync();
             await speakerAnalysis.CancelAndWaitAsync();
             if (session is not null)
             {
