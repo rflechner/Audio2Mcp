@@ -12,6 +12,45 @@ namespace Audio2Mcp.Tests;
 
 public sealed class ChatTests
 {
+    [Theory]
+    [InlineData("search_google", "{\"query\":\"été & café\"}", true)]
+    [InlineData("unknown", "{\"query\":\"test\"}", false)]
+    [InlineData("search_google", "{\"url\":\"https://example.com\"}", false)]
+    public async Task ToolCallsAreDispatchedAndResultsReturnedToModel(string toolName, string arguments, bool expectedExecution)
+    {
+        using var handler = new FakeChatHandler { ToolName = toolName, ToolArguments = arguments };
+        using var http = new HttpClient(handler);
+        var executor = new FakeActionExecutor();
+        var conversation = CreateConversation(http, executor);
+        var events = new List<string>();
+        conversation.ActionCompleted += events.Add;
+        var action = new TextAction("search_google", "Search the web", "https://example.com/?q={query}", TextActionKind.OpenBrowser);
+
+        await CollectAsync(conversation.SendAsync("cherche", [], actions: [action]));
+
+        Assert.Equal(expectedExecution ? 1 : 0, executor.Count);
+        Assert.Single(events);
+        using var first = JsonDocument.Parse(handler.Bodies[0]);
+        Assert.Equal("search_google", first.RootElement.GetProperty("tools")[0].GetProperty("function").GetProperty("name").GetString());
+        using var second = JsonDocument.Parse(handler.Bodies[1]);
+        var messages = second.RootElement.GetProperty("messages");
+        Assert.Equal("tool", messages[2].GetProperty("role").GetString());
+        Assert.Equal("call_1", messages[2].GetProperty("tool_call_id").GetString());
+        Assert.Contains(expectedExecution ? "Executed" : "Erreur", messages[2].GetProperty("content").GetString());
+    }
+
+    private sealed class FakeActionExecutor : ITextActionExecutor
+    {
+        public int Count { get; private set; }
+
+        public Task<string> ExecuteAsync(TextAction action, string query, CancellationToken cancellationToken)
+        {
+            Count++;
+            Assert.Equal("été & café", query);
+            return Task.FromResult("Executed");
+        }
+    }
+
     [Fact]
     public async Task SendsInlineImageAndStreamsTextWithConversationHistory()
     {
@@ -121,7 +160,7 @@ public sealed class ChatTests
         Assert.Throws<InvalidOperationException>(() => missingKey.CreateClient());
     }
 
-    private static ChatConversation CreateConversation(HttpClient http)
+    private static ChatConversation CreateConversation(HttpClient http, ITextActionExecutor? executor = null)
     {
         var client = new ChatClient("local-model", new ApiKeyCredential("test-key"), new OpenAIClientOptions
         {
@@ -129,7 +168,7 @@ public sealed class ChatTests
             Transport = new HttpClientPipelineTransport(http),
             RetryPolicy = new ClientRetryPolicy(0)
         });
-        return new ChatConversation(client);
+        return new ChatConversation(client, executor);
     }
 
     private static async Task<List<string>> CollectAsync(IAsyncEnumerable<string> stream)
@@ -153,6 +192,10 @@ public sealed class ChatTests
 
         public bool Truncate { get; set; }
 
+        public string? ToolName { get; set; }
+
+        public string ToolArguments { get; set; } = "";
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             RequestUri = request.RequestUri?.ToString();
@@ -166,6 +209,17 @@ public sealed class ChatTests
             }
 
             var events = Event("Bon", null) + Event("jour", null);
+            if (ToolName is not null && Bodies.Count == 1)
+            {
+                var midpoint = ToolArguments.Length / 2;
+                events = ToolEvent(ToolName, ToolArguments[..midpoint], null)
+                    + ToolEvent(null, ToolArguments[midpoint..], "tool_calls");
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(events + "data: [DONE]\n\n", Encoding.UTF8, "text/event-stream")
+                };
+            }
+
             if (!Truncate)
             {
                 events += Event("", "stop") + "data: [DONE]\n\n";
@@ -186,6 +240,33 @@ public sealed class ChatTests
                 created = 1,
                 model = "local-model",
                 choices = new[] { new { index = 0, delta = new { content = text }, finish_reason = finishReason } }
+            };
+            return $"data: {JsonSerializer.Serialize(payload)}\n\n";
+        }
+
+        private static string ToolEvent(string? name, string arguments, string? finishReason)
+        {
+            var payload = new
+            {
+                id = "test",
+                @object = "chat.completion.chunk",
+                created = 1,
+                model = "local-model",
+                choices = new[]
+                {
+                    new
+                    {
+                        index = 0,
+                        delta = new
+                        {
+                            tool_calls = new[]
+                            {
+                                new { index = 0, id = name is null ? null : "call_1", type = "function", function = new { name, arguments } }
+                            }
+                        },
+                        finish_reason = finishReason
+                    }
+                }
             };
             return $"data: {JsonSerializer.Serialize(payload)}\n\n";
         }

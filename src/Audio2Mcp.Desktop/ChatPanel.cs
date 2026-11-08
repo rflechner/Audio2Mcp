@@ -33,13 +33,15 @@ public sealed class ChatPanel : Grid
     private CancellationTokenSource? cancellation;
     private Task? requestTask;
     private bool stopped;
+    private readonly Func<IReadOnlyList<TextAction>> getActions;
 
     /// <summary>Whether a generation must be cancelled before closing the window.</summary>
     public bool IsSending => requestTask is { IsCompleted: false };
 
     /// <summary>Creates the composer, attachment controls and streaming conversation view.</summary>
-    public ChatPanel()
+    public ChatPanel(Func<IReadOnlyList<TextAction>>? getActions = null)
     {
+        this.getActions = getActions ?? (() => []);
         Margin = new Thickness(24);
         RowDefinitions = new RowDefinitions("Auto,*,Auto");
         RowSpacing = 16;
@@ -194,7 +196,8 @@ public sealed class ChatPanel : Grid
             if (conversation is null)
             {
                 var settings = LlmSettings.Load(Path.Combine(AppContext.BaseDirectory, "appsettings.json"));
-                conversation = new ChatConversation(settings.CreateClient());
+                conversation = new ChatConversation(settings.CreateClient(), new TextActionExecutor());
+                conversation.ActionCompleted += result => AddMessage("Action", result);
             }
 
             var imageNames = string.Join("\n", pendingImages.Select(image => $"[Image : {image.Name}]"));
@@ -202,7 +205,7 @@ public sealed class ChatPanel : Grid
             answer = AddMessage("Assistant", "");
             status.Text = "Réponse en cours…";
 
-            await foreach (var delta in conversation.SendAsync(text, pendingImages.ToArray(), requestCancellation.Token))
+            await foreach (var delta in conversation.SendAsync(text, pendingImages.ToArray(), requestCancellation.Token, getActions()))
             {
                 answer.Text += delta;
                 scroll.ScrollToEnd();
@@ -215,7 +218,7 @@ public sealed class ChatPanel : Grid
         }
         catch (OperationCanceledException)
         {
-            status.Text = "Réponse interrompue. Le brouillon est conservé pour réessayer.";
+            status.Text = "Réponse interrompue. Le brouillon est conservé. Les actions déjà exécutées ne sont pas annulées ; réessayer peut les répéter.";
             MarkIncomplete(answer);
         }
         catch (ClientResultException ex)
@@ -256,7 +259,7 @@ public sealed class ChatPanel : Grid
     {
         if (answer is not null)
         {
-            answer.Text += "\n[Réponse incomplète — échange non ajouté à l’historique du modèle]";
+            answer.Text += "\n[Réponse incomplète — échange non ajouté à l’historique du modèle. Les actions déjà exécutées restent effectuées ; réessayer peut les répéter.]";
         }
     }
 

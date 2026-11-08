@@ -57,13 +57,15 @@ public sealed class MainWindow : Window
 
     private RecordingSession? session;
     private readonly SpeakerAnalysisPanel speakerAnalysis;
-    private readonly ChatPanel chat = new();
+    private readonly TextActionsPanel textActions = new();
+    private readonly ChatPanel chat;
     private bool busy;
     private bool closing;
 
     /// <summary>Creates the recording controls and connects the session lifecycle actions.</summary>
     public MainWindow()
     {
+        chat = new ChatPanel(() => textActions.Actions);
         speakerAnalysis = new SpeakerAnalysisPanel(CreateTranscriber);
         BuildLayout();
         BindActions();
@@ -147,7 +149,8 @@ public sealed class MainWindow : Window
             ItemsSource = new[]
             {
                 new TabItem { Header = "Transcription", Content = layout },
-                new TabItem { Header = "Chat", Content = chat }
+                new TabItem { Header = "Chat", Content = chat },
+                new TabItem { Header = "Actions", Content = textActions }
             }
         };
     }

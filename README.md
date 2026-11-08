@@ -50,6 +50,14 @@ The API key itself must be available in the application's process environment; n
 
 History and attachments remain in memory until a new discussion or application exit. Each request sends prior completed turns and their images to the configured endpoint. Interrupted or failed turns stay visible but are excluded from subsequent model context, and their draft is retained for retry. No audio or transcripts are automatically sent to the LLM. The default endpoint is loopback; changing it changes where chat text and images are sent. There is no automatic context trimming, persistent chat storage, or Markdown rendering.
 
+## Text actions in chat
+
+The **Actions** tab creates, edits, enables, and deletes tools described in natural language. Each definition includes a unique tool name, a description explaining when the model should use it, an execution type (**browser** or **HTTP GET**), and an HTTP(S) URL template containing `{query}` in its path or query string. **Exemple Google** fills a search example; click **Enregistrer** to make it available. The description guides tool selection; the URL template defines the actual effect. This prototype does not generate executable code from descriptions.
+
+Definitions are stored in `%LOCALAPPDATA%/Audio2Mcp/actions.json`. Saved changes apply to the next chat message, including in an existing conversation. Enabled actions execute automatically when requested by the model. The model supplies a concise `query`, which is URL-encoded before substitution. For example, save the Google example and ask in **Chat**: “Recherche des tutoriels Avalonia pour débutants.” A tool-capable model can then open the search in the default browser. Browser results only report that the URL opened; they do not fetch search results.
+
+The chat displays tool arguments and execution results, and returns results to the model for its final response. HTTP GET results contain the status and up to 4,000 response characters; requests time out after 20 seconds and do not follow redirects. The configured site receives the query, and HTTP response text is sent to the configured LLM. Do not put credentials in URL templates. Tool support is required in both the model and its server. Each message allows at most four tool rounds with eight calls per round. Cancellation stops pending work but cannot undo an opened browser or an HTTP request already received by a server. Retrying a failed turn can repeat its actions. This is chat function calling, not an MCP server.
+
 ## Microphone and speaker labels
 
 For calls, enable **Include microphone (separate source)** before Start. The microphone and system output are recorded separately and live text is labeled `Micro` or `PC`. A source is not necessarily a single person. Use headphones to reduce playback leaking into the microphone; this prototype does not cancel acoustic echo.
