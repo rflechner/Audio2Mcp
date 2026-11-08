@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>WinExe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.4" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.4" />
+    <ProjectReference Include="../Audio2Mcp.Capture.Windows/Audio2Mcp.Capture.Windows.csproj" />
+    <ProjectReference Include="../Audio2Mcp.Transcription.Whisper/Audio2Mcp.Transcription.Whisper.csproj" />
+  </ItemGroup>
+</Project>

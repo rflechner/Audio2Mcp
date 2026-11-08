@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <InternalsVisibleTo Include="Audio2Mcp.Tests" />
+    <ProjectReference Include="../Audio2Mcp.Core/Audio2Mcp.Core.csproj" />
+    <PackageReference Include="NAudio.Wasapi" Version="3.0.0" />
+  </ItemGroup>
+</Project>

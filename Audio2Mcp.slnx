@@ -1,0 +1,13 @@
+<Solution>
+  <Project Path="src/Audio2Mcp.Core/Audio2Mcp.Core.csproj" />
+  <Folder Name="/docs/">
+    <File Path="docs/architecture.md" />
+    <File Path="docs/validation.md" />
+    <File Path="docs/whisper.md" />
+  </Folder>
+  <Project Path="src/Audio2Mcp.Capture.Windows/Audio2Mcp.Capture.Windows.csproj" />
+  <Project Path="src/Audio2Mcp.Transcription.Whisper/Audio2Mcp.Transcription.Whisper.csproj" />
+  <Project Path="src/Audio2Mcp.Desktop/Audio2Mcp.Desktop.csproj" />
+  <Project Path="src/Audio2Mcp.Cli/Audio2Mcp.Cli.csproj" />
+  <Project Path="tests/Audio2Mcp.Tests/Audio2Mcp.Tests.csproj" />
+</Solution>

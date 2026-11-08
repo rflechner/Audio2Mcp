@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Audio2Mcp.Desktop": {
+      "commandName": "Project",
+      "workingDirectory": "../.."
+    }
+  }
+}

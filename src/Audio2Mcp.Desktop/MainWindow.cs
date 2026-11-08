@@ -1,0 +1,277 @@
+using Audio2Mcp.Capture.Windows;
+using Audio2Mcp.Core;
+using Audio2Mcp.Transcription.Whisper;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Avalonia.Threading;
+
+namespace Audio2Mcp.Desktop;
+
+/// <summary>Desktop composition root and presentation of a local recording session.</summary>
+public sealed class MainWindow : Window
+{
+    private readonly TextBox executable = new()
+    {
+        Text = Environment.GetEnvironmentVariable("WHISPER_CLI") ?? "tools/whisper/whisper-cli.exe"
+    };
+
+    private readonly TextBox model = new()
+    {
+        Text = Environment.GetEnvironmentVariable("WHISPER_MODEL") ?? "models/ggml-base.bin"
+    };
+
+    private readonly TextBox language = new()
+    {
+        Text = "fr",
+        Width = 90,
+        HorizontalAlignment = HorizontalAlignment.Left
+    };
+
+    private readonly Button start = new() { Content = "Start", MinWidth = 110 };
+    private readonly Button stop = new() { Content = "Stop", MinWidth = 110, IsEnabled = false };
+
+    private readonly TextBlock status = new()
+    {
+        Text = "Prêt • sortie audio Windows par défaut",
+        TextWrapping = TextWrapping.Wrap
+    };
+
+    private readonly TextBox transcript = new()
+    {
+        IsReadOnly = true,
+        AcceptsReturn = true,
+        TextWrapping = TextWrapping.Wrap,
+        PlaceholderText = "La transcription apparaîtra après une pause sonore (20 s maximum par segment)…"
+    };
+
+    private RecordingSession? session;
+    private bool busy;
+    private bool closing;
+
+    /// <summary>Creates the recording controls and connects the session lifecycle actions.</summary>
+    public MainWindow()
+    {
+        BuildLayout();
+        BindActions();
+
+        if (!OperatingSystem.IsWindows())
+        {
+            start.IsEnabled = false;
+            status.Text = "Interface portable ; capture disponible uniquement sous Windows.";
+        }
+    }
+
+    private void BuildLayout()
+    {
+        Title = "Audio2Mcp — transcription locale";
+        Width = 780;
+        Height = 670;
+        MinWidth = 600;
+        MinHeight = 550;
+
+        var settings = new StackPanel { Spacing = 8 };
+        settings.Children.Add(new TextBlock
+        {
+            Text = "Audio2Mcp",
+            FontSize = 28,
+            FontWeight = FontWeight.Bold
+        });
+        settings.Children.Add(new TextBlock
+        {
+            Text = "Capturez le son du PC et transcrivez-le localement.",
+            FontSize = 15
+        });
+        settings.Children.Add(new TextBlock { Text = "Exécutable whisper.cpp" });
+        settings.Children.Add(executable);
+
+        settings.Children.Add(new TextBlock { Text = "Modèle GGML multilingue" });
+        settings.Children.Add(model);
+
+        settings.Children.Add(new TextBlock { Text = "Langue (fr, en, auto…)" });
+        settings.Children.Add(language);
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 12,
+            Margin = new Thickness(0, 8)
+        };
+        buttons.Children.Add(start);
+        buttons.Children.Add(stop);
+
+        settings.Children.Add(buttons);
+        settings.Children.Add(status);
+
+        var layout = new Grid
+        {
+            RowDefinitions = new RowDefinitions("Auto,*,Auto"),
+            Margin = new Thickness(24),
+            RowSpacing = 16
+        };
+        Grid.SetRow(settings, 0);
+        Grid.SetRow(transcript, 1);
+
+        var footer = new TextBlock
+        {
+            Text = "Sortie système uniquement • pas de microphone • WAV et texte dans captures/",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 12
+        };
+
+        Grid.SetRow(footer, 2);
+        layout.Children.Add(settings);
+        layout.Children.Add(transcript);
+        layout.Children.Add(footer);
+
+        Content = layout;
+    }
+
+    private void BindActions()
+    {
+        start.Click += async (_, _) => await StartAsync();
+        stop.Click += async (_, _) => await StopAsync();
+        Closing += OnClosing;
+    }
+
+    private async void OnClosing(object? sender, WindowClosingEventArgs e)
+    {
+        if (closing || session is null)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        if (busy)
+        {
+            status.Text = "Arrêt en cours : attendez avant de fermer.";
+            return;
+        }
+
+        closing = true;
+        busy = true;
+
+        try
+        {
+            await session.DisposeAsync();
+        }
+        catch (Exception ex)
+        {
+            status.Text = ex.Message;
+        }
+        finally
+        {
+            session = null;
+            Close();
+        }
+    }
+
+    private async Task StartAsync()
+    {
+        if (busy || session is not null || !OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        busy = true;
+        start.IsEnabled = false;
+
+        try
+        {
+            var transcriber = new WhisperCliTranscriber(executable.Text ?? "", model.Text ?? "", language.Text ?? "fr");
+            session = new RecordingSession(new WindowsLoopbackCapture(), transcriber);
+            BindSessionEvents(session);
+
+            transcript.Text = "";
+            var directory = Path.GetFullPath(Path.Combine("captures", DateTime.Now.ToString("yyyyMMdd-HHmmss-fff")));
+            await session.StartAsync(directory);
+
+            status.Text = $"Capture active • {directory}";
+            stop.IsEnabled = true;
+            executable.IsEnabled = model.IsEnabled = language.IsEnabled = false;
+        }
+        catch (Exception ex)
+        {
+            status.Text = $"Démarrage impossible : {ex.Message}";
+            await DisposeSessionAsync();
+
+            start.IsEnabled = true;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void BindSessionEvents(RecordingSession recordingSession)
+    {
+        recordingSession.SegmentReady += segment => Dispatcher.UIThread.Post(() =>
+            {
+                transcript.Text += $"[{segment.Start:mm\\:ss}] {segment.Text}{Environment.NewLine}";
+                transcript.CaretIndex = transcript.Text.Length;
+            });
+
+        recordingSession.StatusChanged += message => Dispatcher.UIThread.Post(() => status.Text = message);
+
+        recordingSession.CaptureFailed += ex => Dispatcher.UIThread.Post(async () =>
+        {
+            status.Text = ex.Message;
+            await StopAsync();
+        });
+    }
+
+    private async Task DisposeSessionAsync()
+    {
+        if (session is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await session.DisposeAsync();
+        }
+        catch (Exception ex)
+        {
+            // Cleanup failures must not escape an async UI event handler.
+            status.Text += $" • Nettoyage impossible : {ex.Message}";
+        }
+        finally
+        {
+            session = null;
+        }
+    }
+
+    private async Task StopAsync()
+    {
+        if (busy || session is null)
+        {
+            return;
+        }
+
+        busy = true;
+        stop.IsEnabled = false;
+        status.Text = "Capture arrêtée ; finalisation des transcriptions en attente…";
+
+        try
+        {
+            var result = await session.StopAsync();
+
+            status.Text = $"Terminé • {result.Duration.TotalSeconds:0.0} s • " +
+                (result.IsSilent ? "silence détecté • " : "signal audio détecté • ") + result.Path;
+        }
+        catch (Exception ex)
+        {
+            status.Text = $"Erreur : {ex.Message}";
+        }
+        finally
+        {
+            await DisposeSessionAsync();
+
+            busy = false;
+            start.IsEnabled = true;
+            executable.IsEnabled = model.IsEnabled = language.IsEnabled = true;
+        }
+    }
+}
