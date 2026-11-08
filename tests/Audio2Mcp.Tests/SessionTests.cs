@@ -52,6 +52,11 @@ public sealed class SessionTests
             Assert.Contains("last", await File.ReadAllTextAsync(Path.Combine(directory, "transcript.txt")));
             await session.StopAsync();
             Assert.Equal(1, capture.Stops);
+            Assert.Equal(0, transcriber.Disposals);
+
+            await session.DisposeAsync();
+            await session.DisposeAsync();
+            Assert.Equal(1, transcriber.Disposals);
         }
         finally
         {
@@ -110,6 +115,8 @@ public sealed class SessionTests
             await session.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(3));
             Assert.True(transcriber.Cancelled);
             Assert.Equal(1, capture.Stops);
+            await session.DisposeAsync();
+            Assert.Equal(1, transcriber.Disposals);
         }
         finally
         {
@@ -117,8 +124,44 @@ public sealed class SessionTests
         }
     }
 
+    [Fact]
+    public async Task DisposeBeforeStartReleasesTheTranscriberOnce()
+    {
+        var transcriber = new FakeTranscriber();
+        var session = new RecordingSession(new FakeCapture(), transcriber);
+
+        await session.DisposeAsync();
+        await session.DisposeAsync();
+
+        Assert.Equal(1, transcriber.Disposals);
+        Assert.Empty(transcriber.Paths);
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => session.StartAsync("unused"));
+    }
+
+    [Fact]
+    public async Task CaptureCleanupFailureStillDisposesTheTranscriber()
+    {
+        var transcriber = new FakeTranscriber();
+        var capture = new FakeCapture { FailDisposal = true };
+        var session = new RecordingSession(capture, transcriber);
+
+        await Assert.ThrowsAsync<IOException>(() => session.DisposeAsync().AsTask());
+        await Assert.ThrowsAsync<IOException>(() => session.DisposeAsync().AsTask());
+
+        Assert.Equal(1, transcriber.Disposals);
+    }
+
     private sealed class BlockingTranscriber : ITranscriber
     {
+        public int Disposals;
+
+        public ValueTask DisposeAsync()
+        {
+            Assert.True(Cancelled);
+            Disposals++;
+            return ValueTask.CompletedTask;
+        }
+
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool Cancelled;
         public async Task<string> TranscribeAsync(string path, CancellationToken token)
@@ -141,6 +184,8 @@ public sealed class SessionTests
 
     private sealed class FakeCapture : IAudioCapture
     {
+        public bool FailDisposal;
+
         public event Action<AudioChunk>? ChunkReady;
         public event Action<Exception>? Failed { add { } remove { } }
         public int Stops;
@@ -152,11 +197,24 @@ public sealed class SessionTests
             Emit("last", 0.5);
             return Task.FromResult(new CaptureResult("wav", 10, TimeSpan.FromSeconds(1), 0.5));
         }
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask DisposeAsync()
+        {
+            return FailDisposal
+                ? ValueTask.FromException(new IOException("test"))
+                : ValueTask.CompletedTask;
+        }
     }
 
     private sealed class FakeTranscriber : ITranscriber
     {
+        public int Disposals;
+
+        public ValueTask DisposeAsync()
+        {
+            Disposals++;
+            return ValueTask.CompletedTask;
+        }
+
         public List<string> Paths { get; } = [];
         public bool FailFirst;
         public Task<string> TranscribeAsync(string path, CancellationToken token)

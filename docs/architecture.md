@@ -11,7 +11,8 @@ flowchart LR
     CORE --> CAP[IAudioCapture port]
     CORE --> STT[ITranscriber port]
     WIN[Windows adapter<br/>NAudio / WASAPI] -. implements .-> CAP
-    WHISPER[whisper.cpp adapter<br/>local process] -. implements .-> STT
+    NATIVE[Whisper.net adapter<br/>in-process native CPU runtime] -. implements .-> STT
+    WHISPER[Optional whisper-cli adapter<br/>local process] -. implements .-> STT
     FUTURE[Linux / macOS adapters<br/>not implemented] -. extension .-> CAP
 ```
 
@@ -26,7 +27,7 @@ flowchart TD
     PCM --> FILES[segment-NNNNN.wav]
     FILES --> QUEUE[Queue of up to 8 chunks]
     QUEUE --> SILENCE{Peak at or above threshold?}
-    SILENCE -->|yes| PROCESS[whisper-cli + GGML model]
+    SILENCE -->|yes| PROCESS[Whisper.net + retained GGML model<br/>or optional whisper-cli]
     SILENCE -->|no| SKIP[Skip inference]
     PROCESS --> TEXT[transcript.txt + Avalonia update]
 ```
@@ -60,7 +61,7 @@ sequenceDiagram
     Session-->>UI: CaptureResult
 ```
 
-The worker processes chunks in order. Stop waits for the queue to drain; each inference has a two-minute timeout. Closing the application during capture cancels Whisper by killing its process tree and preserves files already written. Inference errors are displayed without stopping capture. Device errors cause the host to initiate stop.
+The worker processes chunks in order. Stop waits for the queue to drain; each inference has a two-minute cancellation timeout. The session owns and disposes both the capture adapter and transcriber after inference has ended. Whisper.net retains the model across chunks, creates independent decoding state for each chunk, and uses cooperative native cancellation. Model loading happens on a worker thread; loading itself is not interruptible. Closing the application cancels native work and waits for cleanup, or kills the child process tree when the optional CLI engine is selected. Files already written are preserved. Inference errors are displayed without stopping capture. Device errors cause the host to initiate stop.
 
 To support another OS, implement `IAudioCapture`: emit mono 16 kHz PCM16 WAV files, timestamps, and a peak measurement, then return a `CaptureResult`. No changes to the Whisper adapter or core are needed. To replace speech-to-text, implement `ITranscriber`.
 

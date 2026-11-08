@@ -55,6 +55,17 @@ Local results are in `captures/validation-tone/`, `captures/validation-silence/`
 - Separate hardware test with a 440 Hz tone through Windows loopback: 21.99 seconds recorded, split into 20 seconds followed by 1.99 seconds at Stop. RIFF headers and sizes checked independently: complete native stereo 44.1 kHz / 32-bit extensible WAV; PCM16 mono 16 kHz chunks. Results are in `captures/pause-loopback-check/`.
 - Limitations: the speech test uses a local recording rather than newly captured live speech. The GUI was not retested in this pass. The RMS threshold remains a heuristic: low-level noise in a subsequent chunk still produced a music annotation. Neither dedicated VAD nor overlap at forced boundaries is implemented.
 
+### Whisper.net integration verification
+
+- Release solution build: 0 warnings and 0 errors. All 17 deterministic tests passed, including transcriber ownership, disposal after cancellation, repeated disposal, and cleanup when the capture adapter fails to dispose.
+- `Whisper.net` and `Whisper.net.Runtime` are pinned to 1.9.1. The smoke test confirmed that `whisper.dll` and the matching GGML libraries were loaded inside the .NET process.
+- Native inference on the existing 7.12-second French chunk recognized the complete retirement-age sentence on two successive calls using the same adapter. Observed times were 1.03 s and 0.83 s, including lazy model loading on the first call. These are individual observations, not a controlled performance comparison with the CLI.
+- The public JFK sample was transcribed correctly with automatic language detection. Observed times were 1.66 s and 1.44 s.
+- Both native runs verified cancellation after inference began, successful transcription afterward, disposal during another inference, repeated disposal, and rejection of calls after disposal. Native cancellation is cooperative; these checks do not establish a hard shutdown deadline for every model or machine.
+- `setup-whisper.ps1 -ModelOnly` was checked with the existing model and preserved its expected SHA256. Fresh model downloading was not repeated.
+- This pass tested native inference from saved WAV files. Live loopback capture, the desktop UI, GPU runtimes, and published deployment on a clean machine were not retested. Capture and conversion code were unchanged.
+- Reproduce with the explicit [native smoke test](whisper.md#repeatable-native-smoke-test). No models or recordings are committed.
+
 ### Launch commands
 
 ```powershell

@@ -4,7 +4,7 @@ namespace Audio2Mcp.Core;
 
 /// <summary>Coordinates one recording with a bounded, sequential transcription queue.</summary>
 /// <remarks>
-/// Owns the capture adapter. Call lifecycle methods from one host thread; event handlers must
+/// Owns both adapters. Call lifecycle methods from one host thread; event handlers must
 /// marshal to the UI thread themselves. Stop drains queued chunks, while disposal cancels inference.
 /// </remarks>
 public sealed class RecordingSession(IAudioCapture capture, ITranscriber transcriber) : IAsyncDisposable
@@ -16,6 +16,7 @@ public sealed class RecordingSession(IAudioCapture capture, ITranscriber transcr
 
     private Task? worker;
     private Task<CaptureResult>? stopping;
+    private Task? disposal;
     private string directory = "";
 
     /// <summary>Raised by the transcription worker after recognized text is saved.</summary>
@@ -30,6 +31,8 @@ public sealed class RecordingSession(IAudioCapture capture, ITranscriber transcr
     /// <summary>Starts this single-use session and creates its output directory.</summary>
     public async Task StartAsync(string outputDirectory)
     {
+        ObjectDisposedException.ThrowIf(disposal is not null, this);
+
         if (worker is not null)
         {
             throw new InvalidOperationException("Session déjà démarrée.");
@@ -60,7 +63,9 @@ public sealed class RecordingSession(IAudioCapture capture, ITranscriber transcr
     private void OnChunk(AudioChunk chunk)
     {
         if (!queue.Writer.TryWrite(chunk))
+        {
             StatusChanged?.Invoke($"Transcription en retard : segment {chunk.Start} conservé sur disque mais non transcrit.");
+        }
     }
 
     private async Task ConsumeAsync()
@@ -134,8 +139,10 @@ public sealed class RecordingSession(IAudioCapture capture, ITranscriber transcr
         }
     }
 
-    /// <summary>Cancels pending inference and releases the capture adapter after finalizing audio.</summary>
-    public async ValueTask DisposeAsync()
+    /// <summary>Cancels inference, finalizes capture, and releases both adapters exactly once.</summary>
+    public ValueTask DisposeAsync() => new(disposal ??= DisposeCoreAsync());
+
+    private async Task DisposeCoreAsync()
     {
         abort.Cancel();
 
@@ -155,7 +162,14 @@ public sealed class RecordingSession(IAudioCapture capture, ITranscriber transcr
             }
             finally
             {
-                abort.Dispose();
+                try
+                {
+                    await transcriber.DisposeAsync();
+                }
+                finally
+                {
+                    abort.Dispose();
+                }
             }
         }
     }

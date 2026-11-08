@@ -4,18 +4,21 @@ A .NET 10 / Avalonia proof of concept that captures **Windows system audio** thr
 
 ## Getting started on Windows
 
-Requirements: .NET SDK **10.0.303 or a compatible later 10.0 version**, Git, CMake, and Visual Studio 2022 with the C++ workload and a Windows SDK. An active audio output device is required.
+Requirements: .NET SDK **10.0.303 or a compatible later 10.0 version**, Windows 11 or Windows Server 2022 (or newer), and the Visual C++ 2022 Redistributable. The bundled CPU runtime requires AVX, AVX2, FMA, and F16C on x86/x64. An active audio output device is required. See the [Whisper.net runtime requirements](https://github.com/sandrohanea/whisper.net#pre-requisites).
 
 From the repository root:
 
 ```powershell
-git submodule update --init --recursive
-./scripts/setup-whisper.ps1
+./scripts/setup-whisper.ps1 -ModelOnly
 dotnet build Audio2Mcp.slnx -c Release
 dotnet run --project src/Audio2Mcp.Desktop -c Release --no-build
 ```
 
-The setup script builds whisper.cpp for CPU inference and downloads the multilingual `base` model (~148 MB). It does not install anything globally. Tools and models are excluded from Git. If you already have the engine installed, enter its path and the model path in the window, or use the `WHISPER_CLI` and `WHISPER_MODEL` environment variables.
+The default engine uses **Whisper.net 1.9.1** and its matching CPU runtime to call whisper.cpp in process. NuGet supplies the native libraries; no executable path or C++ compilation is needed. The model loads on the first non-silent chunk and stays in memory until the session is disposed. Audio and inference remain local.
+
+The setup command downloads the multilingual `base` model (~148 MB), or keeps an existing model. It does not install anything globally. Tools and models are excluded from Git. Set the model path in the window or through `WHISPER_MODEL`.
+
+The engine selector also offers the original external CLI for comparison. To build it, run `./scripts/setup-whisper.ps1` without `-ModelOnly`; this additionally requires Git, CMake, and Visual Studio 2022 with the C++ workload and a Windows SDK. The executable path field and `WHISPER_CLI` apply only to that external engine.
 
 In Rider, select the `Audio2Mcp.Desktop` launch profile from `src/Audio2Mcp.Desktop/Properties/launchSettings.json`. This profile sets the working directory to the repository root (`../..` from the project directory), so the relative paths `tools/whisper/whisper-cli.exe`, `models/ggml-base.bin`, and `captures/` resolve from that root. `dotnet run --project src/Audio2Mcp.Desktop` also uses this profile by default. If an older Rider run configuration is still selected, switch to the one imported from `launchSettings.json`.
 
@@ -36,11 +39,11 @@ dotnet run --project src/Audio2Mcp.Cli -c Release -- --duration 6 --test-tone
 This command plays an audible 440 Hz tone and captures it through the system output. Without `--test-tone`, play an audio source yourself. A silent playback stream preserves silent intervals in the WAV. Exit codes: `0` = non-silent signal, `2` = silence or near-silence, `1` = error. A nonzero peak does not establish that speech was captured.
 
 ```powershell
-dotnet run --project src/Audio2Mcp.Cli -c Release -- --duration 15 --whisper tools/whisper/whisper-cli.exe --model models/ggml-base.bin --language fr
+dotnet run --project src/Audio2Mcp.Cli -c Release -- --duration 15 --model models/ggml-base.bin --language fr
 dotnet test tests/Audio2Mcp.Tests -c Release
 ```
 
-The example uses `fr` for French audio; use `en` for English or `auto` for automatic language detection. `--output` specifies a **new session directory**. Ctrl+C finalizes the WAV. Captures remain local and are ignored by Git.
+The example uses Whisper.net and `fr` for French audio; use `en` for English or `auto` for automatic language detection. Add `--whisper tools/whisper/whisper-cli.exe` to compare with the external engine. Without `--model` or `--whisper`, the console only captures audio. `--output` specifies a **new session directory**. Ctrl+C finalizes the WAV. Captures remain local and are ignored by Git.
 
 ## Scope and limitations
 

@@ -10,4 +10,5 @@
   <Project Path="src/Audio2Mcp.Desktop/Audio2Mcp.Desktop.csproj" />
   <Project Path="src/Audio2Mcp.Cli/Audio2Mcp.Cli.csproj" />
   <Project Path="tests/Audio2Mcp.Tests/Audio2Mcp.Tests.csproj" />
+  <Project Path="tests/Audio2Mcp.WhisperSmokeTest/Audio2Mcp.WhisperSmokeTest.csproj" />
 </Solution>

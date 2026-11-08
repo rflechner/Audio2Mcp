@@ -12,6 +12,15 @@ namespace Audio2Mcp.Desktop;
 /// <summary>Desktop composition root and presentation of a local recording session.</summary>
 public sealed class MainWindow : Window
 {
+    private readonly ComboBox engine = new()
+    {
+        ItemsSource = new[] { "Whisper.net (en mémoire)", "whisper-cli (processus externe)" },
+        SelectedIndex = 0,
+        HorizontalAlignment = HorizontalAlignment.Stretch
+    };
+
+    private readonly StackPanel executableSettings = new() { Spacing = 8, IsVisible = false };
+
     private readonly TextBox executable = new()
     {
         Text = Environment.GetEnvironmentVariable("WHISPER_CLI") ?? "tools/whisper/whisper-cli.exe"
@@ -83,8 +92,12 @@ public sealed class MainWindow : Window
             Text = "Capturez le son du PC et transcrivez-le localement.",
             FontSize = 15
         });
-        settings.Children.Add(new TextBlock { Text = "Exécutable whisper.cpp" });
-        settings.Children.Add(executable);
+        settings.Children.Add(new TextBlock { Text = "Moteur de transcription" });
+        settings.Children.Add(engine);
+
+        executableSettings.Children.Add(new TextBlock { Text = "Exécutable whisper.cpp" });
+        executableSettings.Children.Add(executable);
+        settings.Children.Add(executableSettings);
 
         settings.Children.Add(new TextBlock { Text = "Modèle GGML multilingue" });
         settings.Children.Add(model);
@@ -130,6 +143,7 @@ public sealed class MainWindow : Window
 
     private void BindActions()
     {
+        engine.SelectionChanged += (_, _) => executableSettings.IsVisible = engine.SelectedIndex == 1;
         start.Click += async (_, _) => await StartAsync();
         stop.Click += async (_, _) => await StopAsync();
         Closing += OnClosing;
@@ -179,7 +193,9 @@ public sealed class MainWindow : Window
 
         try
         {
-            var transcriber = new WhisperCliTranscriber(executable.Text ?? "", model.Text ?? "", language.Text ?? "fr");
+            ITranscriber transcriber = engine.SelectedIndex == 0
+                ? new WhisperNetTranscriber(model.Text ?? "", language.Text ?? "fr")
+                : new WhisperCliTranscriber(executable.Text ?? "", model.Text ?? "", language.Text ?? "fr");
             session = new RecordingSession(new WindowsLoopbackCapture(), transcriber);
             BindSessionEvents(session);
 
@@ -189,7 +205,7 @@ public sealed class MainWindow : Window
 
             status.Text = $"Capture active • {directory}";
             stop.IsEnabled = true;
-            executable.IsEnabled = model.IsEnabled = language.IsEnabled = false;
+            engine.IsEnabled = executable.IsEnabled = model.IsEnabled = language.IsEnabled = false;
         }
         catch (Exception ex)
         {
@@ -271,7 +287,7 @@ public sealed class MainWindow : Window
 
             busy = false;
             start.IsEnabled = true;
-            executable.IsEnabled = model.IsEnabled = language.IsEnabled = true;
+            engine.IsEnabled = executable.IsEnabled = model.IsEnabled = language.IsEnabled = true;
         }
     }
 }

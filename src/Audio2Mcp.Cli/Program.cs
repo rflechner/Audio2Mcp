@@ -6,7 +6,7 @@ try
 {
     if (args.Contains("--help"))
     {
-        Console.WriteLine("--duration <1..3600> --output <dossier neuf> --test-tone\n--whisper <exe> --model <ggml.bin> --language <fr|en|auto>\nSans --whisper : capture seule. Ctrl+C : arrêt propre.");
+        Console.WriteLine("--duration <1..3600> --output <dossier neuf> --test-tone\n--model <ggml.bin> --language <fr|en|auto>\nAvec --model : Whisper.net en mémoire. --whisper <exe> : moteur externe optionnel.\nSans modèle : capture seule. Ctrl+C : arrêt propre.");
         return 0;
     }
 
@@ -21,12 +21,22 @@ try
         throw new IOException("Choisissez un nouveau dossier de capture.");
     }
 
-    ITranscriber transcriber = options.WhisperExecutable is null && options.ModelPath is null
-        ? new NoTranscription()
-        : new WhisperCliTranscriber(
-            options.WhisperExecutable ?? throw new ArgumentException("--whisper requis"),
+    ITranscriber transcriber;
+    if (options.WhisperExecutable is not null)
+    {
+        transcriber = new WhisperCliTranscriber(
+            options.WhisperExecutable,
             options.ModelPath ?? throw new ArgumentException("--model requis"),
             options.Language);
+    }
+    else if (options.ModelPath is not null)
+    {
+        transcriber = new WhisperNetTranscriber(options.ModelPath, options.Language);
+    }
+    else
+    {
+        transcriber = new NoTranscription();
+    }
 
     await using var session = new RecordingSession(
         new WindowsLoopbackCapture(testTone: options.TestTone),
@@ -83,4 +93,6 @@ catch (Exception ex)
 sealed class NoTranscription : ITranscriber
 {
     public Task<string> TranscribeAsync(string path, CancellationToken token) => Task.FromResult("");
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

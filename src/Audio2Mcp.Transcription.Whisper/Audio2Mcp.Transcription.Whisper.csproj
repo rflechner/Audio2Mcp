@@ -1,3 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <ItemGroup><ProjectReference Include="../Audio2Mcp.Core/Audio2Mcp.Core.csproj" /></ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Audio2Mcp.Core/Audio2Mcp.Core.csproj" />
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+  </ItemGroup>
 </Project>

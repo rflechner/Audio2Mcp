@@ -118,4 +118,7 @@ public sealed class WhisperCliTranscriber : ITranscriber
 
         return info;
     }
+
+    /// <summary>No persistent resources are retained between process-based transcriptions.</summary>
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }
