@@ -12,6 +12,32 @@ namespace Audio2Mcp.Tests;
 
 public sealed class ChatTests
 {
+    [Fact]
+    public async Task SystemOutputTranscriptCanTriggerConfiguredTool()
+    {
+        using var handler = new FakeChatHandler
+        {
+            ToolName = "search_google",
+            ToolArguments = "{\"query\":\"été & café\"}"
+        };
+        using var http = new HttpClient(handler);
+        var executor = new FakeActionExecutor();
+        var conversation = CreateConversation(http, executor);
+        var inbox = new ClientTranscriptInbox { Enabled = true };
+        var segment = new Audio2Mcp.Core.TranscriptSegment(TimeSpan.Zero, TimeSpan.FromSeconds(2), "Recherche été et café");
+        inbox.Offer(segment);
+        var action = new TextAction("search_google", "Search the web", "https://example.com/?q={query}", TextActionKind.OpenBrowser);
+
+        await CollectAsync(conversation.SendAsync(ClientTranscriptInbox.FormatMessage(inbox.Take()!), [], actions: [action]));
+
+        Assert.Equal(1, executor.Count);
+        using var request = JsonDocument.Parse(handler.Bodies[0]);
+        var content = request.RootElement.GetProperty("messages")[0].GetProperty("content").ToString();
+        Assert.Contains("Le client a demandé ceci", content);
+        Assert.Contains(segment.Text, content);
+        Assert.DoesNotContain("image_url", content);
+    }
+
     [Theory]
     [InlineData("search_google", "{\"query\":\"été & café\"}", true)]
     [InlineData("unknown", "{\"query\":\"test\"}", false)]

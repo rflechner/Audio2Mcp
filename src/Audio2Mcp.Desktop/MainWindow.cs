@@ -260,6 +260,7 @@ public sealed class MainWindow : Window
             {
                 transcript.Text += $"[{segment.Start:mm\\:ss}] [{SourceLabel(segment.Source)}] {segment.Text}{Environment.NewLine}";
                 transcript.CaretIndex = transcript.Text.Length;
+                chat.AcceptTranscript(segment);
             });
 
         recordingSession.StatusChanged += message => Dispatcher.UIThread.Post(() => status.Text = message);

@@ -1,9 +1,11 @@
 using Audio2Mcp.Chat;
+using Audio2Mcp.Core;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using System.ClientModel;
 
 namespace Audio2Mcp.Desktop;
@@ -34,6 +36,12 @@ public sealed class ChatPanel : Grid
     private Task? requestTask;
     private bool stopped;
     private readonly Func<IReadOnlyList<TextAction>> getActions;
+    private readonly ClientTranscriptInbox transcriptInbox = new();
+    private readonly CheckBox automaticMode = new() { Content = "Envoyer les demandes entendues sur le PC au LLM" };
+    private readonly TextBlock automaticStatus = new() { TextWrapping = TextWrapping.Wrap };
+    private bool uiBusy;
+    private bool processingTranscripts;
+    private bool automaticSending;
 
     /// <summary>Whether a generation must be cancelled before closing the window.</summary>
     public bool IsSending => requestTask is { IsCompleted: false };
@@ -52,7 +60,23 @@ public sealed class ChatPanel : Grid
             requestTask = SendAsync();
             await requestTask;
         };
-        cancel.Click += (_, _) => cancellation?.Cancel();
+        cancel.Click += (_, _) =>
+        {
+            automaticMode.IsChecked = false;
+            cancellation?.Cancel();
+        };
+        automaticMode.IsCheckedChanged += (_, _) =>
+        {
+            transcriptInbox.Enabled = automaticMode.IsChecked == true && !stopped;
+            if (!transcriptInbox.Enabled && automaticSending)
+            {
+                cancellation?.Cancel();
+            }
+
+            automaticStatus.Text = transcriptInbox.Enabled
+                ? "Mode actif : démarrez la capture dans Transcription. Seule la source PC est transmise."
+                : "Mode désactivé ; demandes en attente supprimées.";
+        };
         attach.Click += async (_, _) => await AttachImagesAsync();
         reset.Click += (_, _) => ResetConversation();
         ResetConversation();
@@ -62,10 +86,72 @@ public sealed class ChatPanel : Grid
     public async Task CancelAndWaitAsync()
     {
         stopped = true;
+        automaticMode.IsChecked = false;
+        transcriptInbox.Enabled = false;
         cancellation?.Cancel();
         if (requestTask is not null)
         {
             await requestTask;
+        }
+    }
+
+    /// <summary>
+    /// Offers live recognized text on the UI thread. Never waits for the LLM; overflow is displayed.
+    /// Microphone text is excluded by the inbox, independently of the capture configuration.
+    /// </summary>
+    public void AcceptTranscript(TranscriptSegment segment)
+    {
+        if (stopped)
+        {
+            return;
+        }
+
+        var acceptance = transcriptInbox.Offer(segment);
+        if (acceptance == TranscriptAcceptance.Overflow)
+        {
+            AddMessage("Audio PC — non envoyé", "File du LLM pleine : ce segment reste dans la transcription.\n" + segment.Text);
+        }
+        else if (acceptance == TranscriptAcceptance.Queued)
+        {
+            automaticStatus.Text = $"Demandes PC en attente : {transcriptInbox.Count}";
+            TryProcessTranscripts();
+        }
+    }
+
+    private void TryProcessTranscripts()
+    {
+        if (stopped || uiBusy || processingTranscripts || transcriptInbox.Count == 0)
+        {
+            return;
+        }
+
+        requestTask = ProcessTranscriptsAsync();
+    }
+
+    private async Task ProcessTranscriptsAsync()
+    {
+        processingTranscripts = true;
+        try
+        {
+            while (!stopped && transcriptInbox.Take() is { } segment)
+            {
+                automaticStatus.Text = $"Demande PC en cours • {transcriptInbox.Count} en attente";
+                if (!await SendAsync(segment))
+                {
+                    automaticMode.IsChecked = false;
+                    automaticStatus.Text = "Mode désactivé après interruption ou erreur. Aucun nouvel essai automatique.";
+                    break;
+                }
+            }
+
+            if (transcriptInbox.Enabled)
+            {
+                automaticStatus.Text = "En attente d’une transcription PC…";
+            }
+        }
+        finally
+        {
+            processingTranscripts = false;
         }
     }
 
@@ -75,6 +161,14 @@ public sealed class ChatPanel : Grid
         header.Children.Add(new TextBlock { Text = "Chat avec le modèle local", FontSize = 24 });
         header.Children.Add(status);
         header.Children.Add(reset);
+        header.Children.Add(automaticMode);
+        header.Children.Add(new TextBlock
+        {
+            Text = "Le texte reconnu est envoyé au LLM configuré et peut déclencher les actions activées. Le micro est exclu ; tous les sons du PC peuvent être capturés.",
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap
+        });
+        header.Children.Add(automaticStatus);
 
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         actions.Children.Add(attach);
@@ -101,6 +195,8 @@ public sealed class ChatPanel : Grid
 
     private void ResetConversation()
     {
+        automaticMode.IsChecked = false;
+        transcriptInbox.Enabled = false;
         conversation = null;
         messages.Children.Clear();
         pendingImages.Clear();
@@ -179,14 +275,16 @@ public sealed class ChatPanel : Grid
         }
     }
 
-    private async Task SendAsync()
+    private async Task<bool> SendAsync(TranscriptSegment? clientSegment = null)
     {
-        var text = input.Text ?? "";
-        if (stopped || cancellation is not null || (string.IsNullOrWhiteSpace(text) && pendingImages.Count == 0))
+        var text = clientSegment is null ? input.Text ?? "" : ClientTranscriptInbox.FormatMessage(clientSegment);
+        var images = clientSegment is null ? pendingImages.ToArray() : [];
+        if (stopped || cancellation is not null || (string.IsNullOrWhiteSpace(text) && images.Length == 0))
         {
-            return;
+            return false;
         }
 
+        automaticSending = clientSegment is not null;
         SetBusy(true);
         using var requestCancellation = new CancellationTokenSource();
         cancellation = requestCancellation;
@@ -200,21 +298,27 @@ public sealed class ChatPanel : Grid
                 conversation.ActionCompleted += result => AddMessage("Action", result);
             }
 
-            var imageNames = string.Join("\n", pendingImages.Select(image => $"[Image : {image.Name}]"));
-            AddMessage("Vous", string.Join("\n", new[] { text, imageNames }.Where(value => value.Length > 0)));
+            var imageNames = string.Join("\n", images.Select(image => $"[Image : {image.Name}]"));
+            var author = clientSegment is null ? "Vous" : $"Client · audio PC [{clientSegment.Start:mm\\:ss}]";
+            AddMessage(author, string.Join("\n", new[] { text, imageNames }.Where(value => value.Length > 0)));
             answer = AddMessage("Assistant", "");
             status.Text = "Réponse en cours…";
 
-            await foreach (var delta in conversation.SendAsync(text, pendingImages.ToArray(), requestCancellation.Token, getActions()))
+            await foreach (var delta in conversation.SendAsync(text, images, requestCancellation.Token, getActions()))
             {
                 answer.Text += delta;
                 scroll.ScrollToEnd();
             }
 
-            input.Text = "";
-            pendingImages.Clear();
-            RefreshAttachments();
+            if (clientSegment is null)
+            {
+                input.Text = "";
+                pendingImages.Clear();
+                RefreshAttachments();
+            }
+
             status.Text = "Réponse terminée.";
+            return true;
         }
         catch (OperationCanceledException)
         {
@@ -240,8 +344,11 @@ public sealed class ChatPanel : Grid
         finally
         {
             cancellation = null;
+            automaticSending = false;
             SetBusy(false);
         }
+
+        return false;
     }
 
     private TextBlock AddMessage(string author, string text)
@@ -265,7 +372,13 @@ public sealed class ChatPanel : Grid
 
     private void SetBusy(bool busy)
     {
+        uiBusy = busy;
         send.IsEnabled = attach.IsEnabled = reset.IsEnabled = input.IsEnabled = attachments.IsEnabled = !busy;
         cancel.IsEnabled = busy;
+        if (!busy && !stopped)
+        {
+            // Posting avoids replacing the tracked request task before its caller has assigned it.
+            Dispatcher.UIThread.Post(TryProcessTranscripts);
+        }
     }
 }
